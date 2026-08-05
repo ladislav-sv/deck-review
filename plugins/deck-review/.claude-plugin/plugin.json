@@ -1,0 +1,7 @@
+{
+  "name": "deck-review",
+  "version": "1.1.0",
+  "description": "Annotate an HTML deck or document in the browser and send the comments back to Claude Code.",
+  "author": { "name": "Edmund" },
+  "keywords": ["review", "annotation", "deck", "docs", "feedback"]
+}

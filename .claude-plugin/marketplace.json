@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "edmund",
+  "description": "Edmund's in-house Claude Code plugins",
+  "owner": { "name": "Edmund" },
+  "plugins": [
+    {
+      "name": "deck-review",
+      "displayName": "Deck review",
+      "description": "Annotate an HTML deck or document in the browser and send the comments back to Claude Code. Pin, box a region, or quote-select text; hitting Send writes a JSON file and wakes Claude up to apply it.",
+      "author": { "name": "Edmund" },
+      "category": "productivity",
+      "keywords": ["review", "annotation", "deck", "docs", "feedback", "pdf"],
+      "version": "1.1.0",
+      "source": "./plugins/deck-review",
+      "skills": ["./skills/deck-review"]
+    }
+  ]
+}

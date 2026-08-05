@@ -1,0 +1,4 @@
+.DS_Store
+*.review-*.json
+__pycache__/
+*.pyc
