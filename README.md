@@ -121,6 +121,20 @@ can be excluded:
 [`test/slop-fixture.html`](test/slop-fixture.html) is a deliberately awful page that
 should trip 13 rules. If it stops doing that, something regressed.
 
+### The two together
+
+`--annotate` writes a normal HTML file, so the review server can serve it. Lint
+first, then review the flagged copy, and you get the flags and the annotation UI
+on the same page:
+
+```bash
+python3 deck_lint.py deck.html --annotate deck.flagged.html
+python3 review_server.py deck.flagged.html
+```
+
+Comments then come back against `deck.flagged.html` — apply them to the real
+source, not the flagged copy.
+
 ---
 
 ## Decks and documents

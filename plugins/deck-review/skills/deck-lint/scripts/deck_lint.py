@@ -485,7 +485,9 @@ def report(findings, path, total_units, is_deck):
 ANNOTATE_CSS = """
 <style id="lint-css">
 :root{--lint-flag:#f5c518;--lint-err:#d0562b;--lint-note:#8b95a8}
-#lint-layer{position:absolute;inset:0;pointer-events:none;z-index:99998}
+body{position:relative}
+#lint-layer{position:absolute;top:0;left:0;width:100%;height:100%;
+  pointer-events:none;z-index:99998}
 #lint-layer .lbox{position:absolute;border:1px solid var(--lint-flag);box-sizing:border-box}
 #lint-layer .lbox[data-sev="error"]{border-color:var(--lint-err)}
 #lint-layer .lbox[data-sev="note"]{border-color:var(--lint-note)}
@@ -512,7 +514,10 @@ ANNOTATE_JS = """
   function draw(){
     var layer=document.getElementById('lint-layer'); if(!layer) return;
     layer.innerHTML='';
-    var base=document.body.getBoundingClientRect();
+    /* Measure against the layer, never the body: a child's collapsing top margin
+       shifts body's rect but not the layer's containing block, and any host page
+       may position body differently. Self-relative is the only safe origin. */
+    var base=layer.getBoundingClientRect();
     (window.__LINT__||[]).forEach(function(f,i){
       var t=document.querySelector('[data-lint-target="'+i+'"]'); if(!t) return;
       var r=t.getBoundingClientRect();
@@ -535,6 +540,7 @@ ANNOTATE_JS = """
   else draw();
   window.addEventListener('load',draw);
   window.addEventListener('resize',draw);
+  [120,400,1000].forEach(function(t){setTimeout(draw,t);});
 })();
 </script>
 """
