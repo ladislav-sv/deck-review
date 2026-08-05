@@ -132,6 +132,263 @@ body.dr-on.dr-doc{padding-right:var(--dr-rail) !important}
 @media print{#dr-rail,#dr-pop,#dr-marquee,.dr-layer,#dr-done{display:none !important}}
 """
 
+FLAG_CSS = """
+/* Flags outline the element itself. Nothing is positioned by hand, so a box can
+   never drift from what it points at — through scroll, reflow or deck zoom. */
+[data-dr-flag]{outline:1.5px solid var(--dr-fc,#d0562b);outline-offset:1px;border-radius:2px}
+[data-dr-flag][data-dr-cat="slop"]{--dr-fc:#d0562b}
+[data-dr-flag][data-dr-cat="quality"]{--dr-fc:#2f6fd0}
+[data-dr-flag][data-dr-cat="advisory"]{--dr-fc:#8b95a8}
+[data-dr-flag]:hover{outline-width:2.5px;cursor:alias}
+body.dr-flags-off [data-dr-flag]{outline:0}
+body.dr-iso [data-dr-flag]{outline:0}
+body.dr-iso [data-dr-flag].dr-iso-on{outline-width:2.5px}
+
+#dr-flagbar{position:fixed;left:12px;bottom:12px;z-index:99997;max-width:calc(100vw - var(--dr-rail) - 36px);
+  max-height:104px;overflow-y:auto;overscroll-behavior:contain;
+  background:#1a1f2e;color:#fff;border-radius:11px;padding:9px 11px;display:flex;gap:7px;
+  align-items:center;flex-wrap:wrap;box-shadow:0 10px 34px -10px rgba(26,31,46,.6);
+  font:12px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+#dr-flagbar::-webkit-scrollbar{width:6px}
+#dr-flagbar::-webkit-scrollbar-thumb{background:#ffffff2e;border-radius:3px}
+#dr-flagbar .more{background:0;border:1px dashed #ffffff3d;color:#fff;opacity:.72;border-radius:20px;
+  padding:4px 9px;cursor:pointer;font:11.5px -apple-system,sans-serif}
+#dr-flagbar .more:hover{opacity:1}
+#dr-flagbar .ttl{font:10px ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase;
+  opacity:.62;margin-right:2px}
+#dr-flagbar .r{display:inline-flex;align-items:center;gap:6px;background:#ffffff14;border:1px solid #ffffff1f;
+  border-radius:20px;padding:4px 9px;cursor:pointer;white-space:nowrap;font-size:11.5px}
+#dr-flagbar .r:hover{background:#ffffff24}
+#dr-flagbar .r.on{background:#fff;color:#1a1f2e;border-color:#fff;font-weight:600}
+#dr-flagbar .r i{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
+#dr-flagbar .r b{font-variant-numeric:tabular-nums;opacity:.72;font-weight:600}
+#dr-flagbar .r.on b{opacity:.6}
+#dr-flagbar .x{margin-left:2px;cursor:pointer;opacity:.55;font-size:14px;padding:0 3px}
+#dr-flagbar .x:hover{opacity:1}
+#dr-flagbar .note{opacity:.62;font-size:11px}
+#dr-flagbar button.scan{background:#7145fc;color:#fff;border:0;border-radius:7px;padding:5px 11px;
+  font:600 11.5px -apple-system,sans-serif;cursor:pointer}
+
+#dr-flagtip{position:fixed;z-index:99998;background:#1a1f2e;color:#fff;border-radius:8px;padding:8px 10px;
+  max-width:320px;display:none;pointer-events:none;box-shadow:0 10px 30px -8px rgba(26,31,46,.55);
+  font:12px/1.45 -apple-system,BlinkMacSystemFont,sans-serif}
+#dr-flagtip .id{font:10px ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;
+  color:#f8adf0;margin-bottom:3px}
+#dr-flagtip .d{opacity:.85;font-size:11.5px}
+#dr-flagtip .hint{margin-top:6px;font:10px ui-monospace,monospace;opacity:.55;letter-spacing:.05em}
+@media print{#dr-flagbar,#dr-flagtip{display:none !important}[data-dr-flag]{outline:0 !important}}
+"""
+
+FLAG_JS = r"""
+(function(){
+  /* Rules, thresholds and copy all come from the vendored Impeccable engine.
+     This file only decides what to paint and how to get from a flag to a comment. */
+  var MAX_NODES = 9000;         /* past this a live scan janks the page */
+  var MAX_BG = 65536;           /* a background-image value bigger than this stalls the scan */
+  var byRule = {}, total = 0, pageLevel = 0, iso = null, tip, bar, muted = 0, expanded = false;
+
+  function el(t, c){ var e = document.createElement(t); if(c) e.className = c; return e; }
+  function cat(f){ return f.advisory ? 'advisory' : (f.category === 'slop' ? 'slop' : 'quality'); }
+  var COLOR = { slop:'#d0562b', quality:'#2f6fd0', advisory:'#8b95a8' };
+
+  /* A page saved with SingleFile inlines its photos as data: URIs inside
+     background-image. The detector scans those values with regexes, and a single
+     300KB base64 string takes it from milliseconds to minutes. Blank them for the
+     duration of the scan: they are photographs, so no gradient or palette rule
+     had anything to say about them anyway. */
+  function muteHeavyBackgrounds(){
+    var saved = [];
+    var nodes = document.querySelectorAll('*');
+    for(var i = 0; i < nodes.length; i++){
+      var n = nodes[i], bi;
+      try { bi = getComputedStyle(n).backgroundImage; } catch(e){ continue; }
+      if(!bi || bi.length < MAX_BG || bi.indexOf('data:') < 0) continue;
+      saved.push([n, n.style.backgroundImage]);
+      n.style.backgroundImage = 'none';
+    }
+    muted = saved.length;
+    return saved;
+  }
+  function restore(saved){
+    saved.forEach(function(p){ p[0].style.backgroundImage = p[1]; });
+  }
+
+  function scan(){
+    if(typeof window.impeccableDetect !== 'function'){ barMsg('detector unavailable'); return; }
+    var res, saved = muteHeavyBackgrounds();
+    try { res = window.impeccableDetect() || []; }
+    catch(e){ restore(saved); barMsg('scan failed: ' + e); return; }
+    restore(saved);
+
+    var IGNORE = window.__DR_IGNORE__ || [];
+    byRule = {}; total = 0; pageLevel = 0;
+    res.forEach(function(r){
+      if(!r || r.isHidden || !r.selector || !r.findings || !r.findings.length) return;
+      if(IGNORE.length){
+        r = { selector:r.selector, isPageLevel:r.isPageLevel, isHidden:r.isHidden,
+              findings: r.findings.filter(function(f){ return IGNORE.indexOf(f.type) < 0; }) };
+        if(!r.findings.length) return;
+      }
+      var node;
+      try { node = document.querySelector(r.selector); } catch(e){ return; }
+      if(!node || node.closest('#dr-rail') || node.closest('#dr-flagbar')) return;
+
+      /* Page-level hits resolve to <body>/<html>. Outlining those draws a box
+         round the whole document and there is nothing specific to comment on,
+         so count them and move on. */
+      if(r.isPageLevel || node === document.body || node === document.documentElement ||
+         node.id === 'dr-stage' || node.id === 'dr-doc'){
+        r.findings.forEach(function(f){
+          (byRule[f.type] = byRule[f.type] || { n:0, cat:cat(f), name:f.name, nodes:[], page:true });
+          byRule[f.type].n++; byRule[f.type].page = true; total++; pageLevel++;
+        });
+        return;
+      }
+
+      /* Worst category wins the outline colour; every rule is kept for the tip. */
+      var cats = r.findings.map(cat);
+      var worst = cats.indexOf('slop') >= 0 ? 'slop'
+                : cats.indexOf('quality') >= 0 ? 'quality' : 'advisory';
+      node.dataset.drFlag = r.findings.map(function(f){ return f.type; }).join(' ');
+      node.dataset.drCat = worst;
+      node.__drFindings = r.findings;
+      r.findings.forEach(function(f){
+        (byRule[f.type] = byRule[f.type] || { n:0, cat:cat(f), name:f.name, nodes:[] });
+        byRule[f.type].n++; byRule[f.type].nodes.push(node); total++;
+      });
+    });
+    buildBar();
+  }
+
+  function barMsg(msg){
+    bar.innerHTML = '';
+    var t = el('span', 'ttl'); t.textContent = 'ai slop'; bar.appendChild(t);
+    var n = el('span', 'note'); n.textContent = msg; bar.appendChild(n);
+  }
+
+  function buildBar(){
+    bar.innerHTML = '';
+    var t = el('span', 'ttl');
+    t.textContent = 'ai slop ' + total;
+    bar.appendChild(t);
+    if(!total){
+      var ok = el('span', 'note'); ok.textContent = 'nothing flagged'; bar.appendChild(ok);
+      return;
+    }
+    var ids = Object.keys(byRule).sort(function(a, b){ return byRule[b].n - byRule[a].n; });
+    var TOP = 6, hidden = 0;
+    if(!expanded && ids.length > TOP + 1){ hidden = ids.length - TOP; ids = ids.slice(0, TOP); }
+    ids.forEach(function(id){
+      var r = byRule[id], b = el('span', 'r');
+      b.title = (r.name || id) + (r.nodes.length ? '' : ' — page level, nothing to outline');
+      var sw = el('i'); sw.style.background = COLOR[r.cat];
+      b.appendChild(sw);
+      b.appendChild(document.createTextNode(id + (r.nodes.length ? '' : ' ·')));
+      var c = el('b'); c.textContent = r.n; b.appendChild(c);
+      if(r.nodes.length){
+        b.onclick = function(){ isolate(id === iso ? null : id); };
+        if(id === iso) b.classList.add('on');
+      } else {
+        b.style.opacity = '.62'; b.style.cursor = 'default';
+      }
+      bar.appendChild(b);
+    });
+    if(hidden){
+      var mo = el('button', 'more');
+      mo.textContent = '+' + hidden + ' more';
+      mo.onclick = function(){ expanded = true; buildBar(); };
+      bar.appendChild(mo);
+    } else if(expanded){
+      var lo = el('button', 'more');
+      lo.textContent = 'less';
+      lo.onclick = function(){ expanded = false; buildBar(); };
+      bar.appendChild(lo);
+    }
+    if(muted){
+      var m = el('span', 'note');
+      m.textContent = '· ' + muted + ' inlined image' + (muted > 1 ? 's' : '') + ' skipped';
+      m.title = 'Background images too large to scan were ignored for this pass.';
+      bar.appendChild(m);
+    }
+    var x = el('span', 'x');
+    x.textContent = '◎'; x.title = 'hide flags';
+    x.onclick = function(){ document.body.classList.toggle('dr-flags-off'); };
+    bar.appendChild(x);
+  }
+
+  function isolate(id){
+    iso = id;
+    Array.prototype.forEach.call(document.querySelectorAll('.dr-iso-on'), function(n){
+      n.classList.remove('dr-iso-on');
+    });
+    document.body.classList.toggle('dr-iso', !!id);
+    if(id) byRule[id].nodes.forEach(function(n){ n.classList.add('dr-iso-on'); });
+    buildBar();
+    if(id && byRule[id].nodes[0]){
+      byRule[id].nodes[0].scrollIntoView({ behavior:'smooth', block:'center' });
+    }
+  }
+
+  function noteFor(node){
+    return (node.__drFindings || []).map(function(f){
+      return '[' + f.type + '] ' + (f.detail || f.name || '');
+    }).join('\n');
+  }
+
+  function wire(){
+    document.addEventListener('mousemove', function(e){
+      var n = e.target.closest && e.target.closest('[data-dr-flag]');
+      if(!n || document.body.classList.contains('dr-flags-off')){ tip.style.display = 'none'; return; }
+      var f = (n.__drFindings || [])[0]; if(!f) return;
+      tip.innerHTML = '';
+      (n.__drFindings || []).slice(0, 3).forEach(function(x){
+        var i = el('div', 'id'); i.textContent = x.type; tip.appendChild(i);
+        var d = el('div', 'd'); d.textContent = x.detail || x.description || ''; tip.appendChild(d);
+      });
+      var h = el('div', 'hint'); h.textContent = '⌥ alt-click to comment on this';
+      tip.appendChild(h);
+      tip.style.display = 'block';
+      var w = tip.offsetWidth, ht = tip.offsetHeight;
+      tip.style.left = Math.min(e.clientX + 14, window.innerWidth - w - 12) + 'px';
+      tip.style.top = Math.max(8, Math.min(e.clientY + 16, window.innerHeight - ht - 12)) + 'px';
+    }, true);
+
+    document.addEventListener('click', function(e){
+      if(!e.altKey) return;
+      var n = e.target.closest && e.target.closest('[data-dr-flag]');
+      if(!n) return;
+      e.preventDefault(); e.stopPropagation();
+      tip.style.display = 'none';
+      if(window.__DR_FLAG_COMMENT__) {
+        window.__DR_FLAG_COMMENT__(n, noteFor(n), { x:e.clientX, y:e.clientY });
+      }
+    }, true);
+  }
+
+  function boot(){
+    bar = el('div'); bar.id = 'dr-flagbar';
+    tip = el('div'); tip.id = 'dr-flagtip';
+    document.body.appendChild(bar); document.body.appendChild(tip);
+    wire();
+
+    var nodes = document.querySelectorAll('*').length;
+    if(nodes > MAX_NODES){
+      barMsg(nodes.toLocaleString() + ' elements — a live scan will stall the page.');
+      var go = el('button', 'scan'); go.textContent = 'Scan anyway';
+      go.onclick = function(){ barMsg('scanning…'); setTimeout(scan, 30); };
+      bar.appendChild(go);
+      return;
+    }
+    scan();
+  }
+
+  /* After deck-review has reparented the slides, so the flags land on the DOM the
+     user actually sees. Element tagging survives any later reflow. */
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(boot, 60); });
+  else setTimeout(boot, 60);
+})();
+"""
+
 OVERLAY_JS = r"""
 (function(){
   var DECK = window.__DR_DECK__, RAIL = 340, KEY = 'deckreview:' + DECK;
@@ -507,6 +764,9 @@ OVERLAY_JS = r"""
     var mq = document.getElementById('dr-marquee');
     stage.addEventListener('mousedown', function(e){
       if(e.button !== 0) return;
+      /* Alt-click belongs to the flag overlay: it turns a flagged element into a
+         prefilled comment. Let it through rather than starting a pin. */
+      if(e.altKey) return;
       if(e.target.closest('.dr-badge') || e.target.closest('#dr-pop') ||
          e.target.closest('#dr-rail')) return;
       var sl = unitEl(e.target); if(!sl) return;
@@ -607,6 +867,25 @@ OVERLAY_JS = r"""
     setTimeout(fit, 250);
     setInterval(heartbeat, 4000);
     window.addEventListener('focus', heartbeat);
+
+    /* Bridge for the flag overlay: turn a flagged element into a comment that is
+       anchored the same way a hand-drawn one would be, so applying it later is
+       no different. Returns false when the element is not inside a unit. */
+    window.__DR_FLAG_COMMENT__ = function(el, note, at){
+      var u = MODE === 'deck' ? unitEl(el) : (unitEl(el) || document.getElementById('dr-doc'));
+      if(!u) return false;
+      var r = el.getBoundingClientRect();
+      var m = unitMeta(u);
+      openComposer({
+        mode: MODE, unit: unitKey(u), slide: m.slide, section: m.section,
+        type: 'region', path: pathOf(el, u),
+        rect: pct(u, r.left, r.top, r.width, r.height)
+      }, at);
+      var t = document.getElementById('dr-pop').querySelector('textarea');
+      t.value = note;
+      t.setSelectionRange(note.length, note.length);
+      return true;
+    };
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
@@ -618,11 +897,49 @@ OVERLAY_JS = r"""
 STATE = {"received": None, "deck": "", "outfile": ""}
 
 
+VENDOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vendor",
+                      "impeccable-detect.js")
+
+
+def flag_block() -> str:
+    """The AI-slop flagging layer: Impeccable's engine plus our own overlay.
+
+    Everything is inlined rather than linked. Pages saved with SingleFile carry a
+    CSP of `script-src 'unsafe-inline'`, which permits an inline <script> but
+    blocks an external one — a linked file would silently never run.
+    """
+    try:
+        with open(VENDOR, encoding="utf-8") as f:
+            engine = f.read()
+    except OSError as e:
+        print("deck-review: flagging off, cannot read %s (%s)" % (VENDOR, e), flush=True)
+        return ""
+    # A literal </script anywhere in the engine would close the tag early.
+    engine = engine.replace("</script", r"<\/script")
+    # The engine only honours disabledRules in extension mode, so --ignore is
+    # applied on our side of the boundary instead. Passing it through as well
+    # costs nothing and takes effect if that ever changes.
+    ignore = STATE.get("ignore", [])
+    cfg = {"autoScan": False, "disabledRules": ignore}
+    return (
+        "<style id=\"dr-flag-style\">" + FLAG_CSS + "</style>\n"
+        "<script>window.__IMPECCABLE_CONFIG__=" + json.dumps(cfg) + ";"
+        "window.__DR_IGNORE__=" + json.dumps(ignore) + ";</script>\n"
+        "<script>" + engine + "</script>\n"
+        "<script>" + FLAG_JS + "</script>\n"
+    )
+
+
 def inject(html: str, deck_name: str) -> str:
+    # A SingleFile capture blocks everything but inline script; drop its CSP so
+    # the overlay can run at all.
+    html = re.sub(r"<meta[^>]*http-equiv=[\"']?content-security-policy[\"']?[^>]*>",
+                  "", html, flags=re.I)
     block = (
         "<style id=\"dr-style\">" + OVERLAY_CSS + "</style>\n"
         "<script>window.__DR_DECK__=" + json.dumps(deck_name) + ";</script>\n"
         "<script>" + OVERLAY_JS + "</script>\n"
+        + (flag_block() if STATE.get("flags") else "")
     )
     # Splice by index, never re.sub: the overlay JS contains backslash escapes
     # (\s, \d) which re would try to expand as replacement-template groups.
@@ -706,6 +1023,10 @@ def main():
     ap.add_argument("--timeout", type=int, default=3600, help="seconds to wait before giving up")
     ap.add_argument("--out", help="explicit output json path")
     ap.add_argument("--no-open", action="store_true", help="do not open a browser")
+    ap.add_argument("--no-flag", action="store_true",
+                    help="do not flag AI slop, annotation only")
+    ap.add_argument("--ignore", default="",
+                    help="comma-separated rule ids to suppress, e.g. ai-color-palette")
     args = ap.parse_args()
 
     deck_path = os.path.abspath(args.deck)
@@ -716,6 +1037,10 @@ def main():
     STATE["deck_path"] = deck_path
     STATE["deck"] = os.path.basename(deck_path)
     STATE["outfile"] = os.path.abspath(args.out) if args.out else next_outfile(deck_path)
+    STATE["ignore"] = [r.strip() for r in args.ignore.split(",") if r.strip()]
+    STATE["flags"] = not args.no_flag and os.path.isfile(VENDOR)
+    if not args.no_flag and not os.path.isfile(VENDOR):
+        print("deck-review: flagging off, vendor engine missing", flush=True)
 
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     STATE["httpd"] = httpd
@@ -723,6 +1048,10 @@ def main():
 
     print("deck-review  %s" % STATE["deck"], flush=True)
     print("  url      %s" % url, flush=True)
+    print("  flags    %s%s" % (
+        "on (impeccable)" if STATE["flags"] else "off",
+        (", ignoring " + ", ".join(STATE["ignore"])) if STATE["flags"] and STATE["ignore"] else ""),
+        flush=True)
     print("  writes   %s" % STATE["outfile"], flush=True)
     print("  waiting  up to %ds for you to hit Send to Claude" % args.timeout, flush=True)
 

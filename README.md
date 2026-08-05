@@ -1,10 +1,13 @@
 # deck-review
 
-**Annotate a deck or document in your browser. Claude picks up the comments and applies them.**
+**See what is wrong with a deck, mark it up, and have Claude fix it.**
 
-Claude builds you an HTML deck. You open it, click a slide, drag a box over a chart,
-or select the exact words that are wrong, and type what should change. You hit send.
-Claude wakes up with your comments and edits the source.
+Claude builds you an HTML deck. You open it and the AI slop is already outlined —
+the eyebrow chips, the side-tab borders, the `01/02/03` section labels, the cards
+inside cards. Alt-click any one of them and it becomes a comment, prefilled with
+what the rule found. Or click a slide, drag a box over a chart, or select the exact
+words that are wrong and type what should change. You hit send. Claude wakes up
+with your comments and edits the source.
 
 No screenshots pasted into chat. No "on slide 7, the third bullet, second sentence".
 
@@ -12,8 +15,15 @@ Two skills, one install:
 
 | | |
 |---|---|
-| **deck-review** | the browser annotation round trip |
-| **deck-lint** | deterministic AI-slop detection — no LLM, no network |
+| **deck-review** | flags AI slop in the page, then the browser annotation round trip |
+| **deck-lint** | deterministic house-rule linting — no LLM, no network |
+
+The flagging is [Impeccable](https://github.com/pbakaus/impeccable)'s detector
+(47 rules), vendored under Apache-2.0 — see
+[`vendor/NOTICE.md`](plugins/deck-review/skills/deck-review/vendor/NOTICE.md).
+`deck-lint` stays separate and stays ours: it encodes the Edmund house rules
+(navy is ink, one purple phrase per title, no dark grounds) that a general design
+linter has no opinion about.
 
 ---
 
