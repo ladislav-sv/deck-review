@@ -45,6 +45,12 @@ FILLER_PHRASES = [
     "in today's fast-paced", "the future of", "and beyond", "more than just",
 ]
 
+# Em-dash overuse is a saturation pattern, not a single-occurrence sin. Two gates,
+# borrowed from impeccable: an absolute floor, and a density per character of body
+# text. One dash in a long deck is punctuation; one per clause is the tell.
+DASH_FLOOR = 4
+DASH_CHARS_PER_DASH = 500
+
 SEV_ORDER = {"note": 0, "warn": 1, "error": 2}
 
 
@@ -163,10 +169,12 @@ class Lint:
         self.is_deck = self.units and self.units[0][0].startswith("slide")
         self.findings = []
 
-    def add(self, rule, sev, unit, msg, evidence=None, family="visual"):
+    def add(self, rule, sev, unit, msg, evidence=None, family="visual",
+            match=None, detail=None, anchor=None):
         self.findings.append({
             "rule": rule, "severity": sev, "family": family, "unit": unit,
             "message": msg, "evidence": (evidence or "")[:160],
+            "match": match, "detail": detail, "anchor": anchor,
         })
 
     # -- visual / structural ------------------------------------------------
@@ -219,7 +227,8 @@ class Lint:
                     continue          # empty box: a swatch, a rule, a spacer
                 self.add("dark-ground", "error", label,
                          "Dark background with content on it. Navy is ink, never a ground: "
-                         "no dark slide, no dark band, no dark card.", val)
+                         "no dark slide, no dark band, no dark card.", val,
+                         anchor=m.group(0), detail="dark ground")
 
     @staticmethod
     def _inner_html(frag, start, tag):
@@ -312,13 +321,17 @@ class Lint:
                 n = len(re.findall(r"<em\b", t, flags=re.I))
                 n += len(re.findall(r"<span[^>]*(?:--purple|#7145fc)", t, flags=re.I))
                 if n == 0:
+                    am = re.search(r"<h[12]\b[^>]*>", frag, re.I)
                     self.add("title-emphasis", "note", label,
                              "Title carries no purple phrase. Every title should have exactly one.",
-                             visible_text(t)[:80])
+                             visible_text(t)[:80],
+                             anchor=am.group(0) if am else None, detail="none")
                 elif n > 1:
                     self.add("title-emphasis", "warn", label,
                              "Title carries %d emphasised phrases. Exactly one." % n,
-                             visible_text(t)[:80])
+                             visible_text(t)[:80],
+                             anchor=re.search(r"<h[12]\b[^>]*>", frag, re.I).group(0),
+                             detail="%d emphases" % n)
 
     def r_fonts(self):
         seen = set()
@@ -355,7 +368,8 @@ class Lint:
                     self.add("nested-cards", "warn", label,
                              "A card inside a card. Nesting panels is the most reliable "
                              "signature of generated layout.",
-                             visible_text(inner)[:70])
+                             visible_text(inner)[:70],
+                             anchor=card.search(inner).group(0), detail="cards in cards")
                     break
 
     def r_deck_length(self):
@@ -375,31 +389,48 @@ class Lint:
                 for m in re.finditer(r"\b%s\b" % re.escape(w), low):
                     self.add("banned-word", "warn", label,
                              "'%s' is marketing filler." % w,
-                             text[max(0, m.start() - 45):m.start() + 55], family="copy")
+                             text[max(0, m.start() - 45):m.start() + 55], family="copy",
+                             match=text[m.start():m.end()], detail=w)
                     break
             for p in FILLER_PHRASES:
                 if p in low:
                     i = low.index(p)
                     self.add("filler-phrase", "warn", label,
                              "'%s' adds no fact. If a sentence carries none, it goes." % p,
-                             text[max(0, i - 40):i + 60], family="copy")
+                             text[max(0, i - 40):i + 60], family="copy",
+                             match=text[i:i + len(p)], detail=p)
             for m in re.finditer(r"\bnot (?:just|only|merely)\b[^.]{0,60}?\bbut\b", low):
                 self.add("not-just-but", "error", label,
                          "'not just X but Y' is the single most recognisable AI construction.",
-                         text[m.start():m.end() + 20], family="copy")
-            # Word on both sides: skips numeric ranges and the "–" that marks an
-            # empty table cell.
-            for m in re.finditer(r"[A-Za-zÀ-ž]\s[—–]\s[A-Za-zÀ-ž]", text):
-                self.add("dash-punctuation", "warn", label,
-                         "Dash used as punctuation. Use a comma, a colon or a new sentence. "
-                         "A numeric range is the only dash allowed.",
-                         text[max(0, m.start() - 45):m.start() + 55], family="copy")
-                break
+                         text[m.start():m.end() + 20], family="copy",
+                         match=text[m.start():m.end()])
             if re.search(r"\b(three|four|five) (?:key |core |main )?(?:pillars|reasons|"
                          r"principles|steps|ways)\b", low):
                 self.add("rule-of-three", "note", label,
                          "A numbered list announced by its own count usually exists for "
                          "rhythm rather than because the count is real.", family="copy")
+
+    def r_dash_density(self):
+        """Fires on saturation, not on the first dash."""
+        whole, hits = [], []
+        for label, frag in self.units:
+            t = visible_text(drop_ignored(frag))
+            whole.append(t)
+            for m in re.finditer(r"[A-Za-zÀ-ž]\s([—–])\s[A-Za-zÀ-ž]", t):
+                hits.append((label, t[max(0, m.start() - 45):m.start() + 55],
+                             t[m.start():m.end()]))
+        body = " ".join(whole)
+        if not hits or not body:
+            return
+        density = len(body) / len(hits)
+        if len(hits) < DASH_FLOOR or density > DASH_CHARS_PER_DASH:
+            return
+        label, ev, match = hits[0]
+        self.add("dash-density", "warn", label,
+                 "%d dashes used as punctuation, one every %d characters. At that rate it "
+                 "is a tic, not punctuation: use a comma, a colon or a new sentence."
+                 % (len(hits), int(density)), ev, family="copy", match=match.strip(),
+                 detail="%d dashes" % len(hits))
 
     def run(self):
         for name in dir(self):
@@ -439,6 +470,179 @@ def report(findings, path, total_units, is_deck):
     return "\n".join(out)
 
 
+# -------------------------------------------------------------- annotate ----
+ANNOTATE_CSS = """
+<style id="lint-css">
+:root{--lint-flag:#f5c518;--lint-err:#d0562b;--lint-note:#8b95a8}
+#lint-layer{position:absolute;inset:0;pointer-events:none;z-index:99998}
+#lint-layer .lbox{position:absolute;border:1px solid var(--lint-flag);box-sizing:border-box}
+#lint-layer .lbox[data-sev="error"]{border-color:var(--lint-err)}
+#lint-layer .lbox[data-sev="note"]{border-color:var(--lint-note)}
+#lint-layer .ltab{position:absolute;left:-1px;transform:translateY(-100%);
+  background:var(--lint-flag);color:#1a1f2e;padding:2px 7px 3px;border-radius:3px 3px 0 0;
+  font:600 11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;
+  letter-spacing:.01em}
+#lint-layer .lbox[data-sev="error"] .ltab{background:var(--lint-err);color:#fff}
+#lint-layer .lbox[data-sev="note"] .ltab{background:var(--lint-note);color:#fff}
+#lint-bar{position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#12151f;color:#fff;
+  padding:9px 18px;font:600 12px/1.4 ui-monospace,SFMono-Regular,monospace;letter-spacing:.05em;
+  display:flex;gap:18px;align-items:center}
+#lint-bar b{color:var(--lint-flag);font-weight:700}
+#lint-bar .e{color:var(--lint-err)}
+@media print{#lint-layer,#lint-bar{display:none}}
+</style>
+"""
+
+ANNOTATE_JS = """
+<script>
+/* Draw a box around each flagged element with a tab on its top-left corner.
+   Measured after layout so the boxes track the real rendered geometry. */
+(function(){
+  function draw(){
+    var layer=document.getElementById('lint-layer'); if(!layer) return;
+    layer.innerHTML='';
+    var base=document.body.getBoundingClientRect();
+    (window.__LINT__||[]).forEach(function(f,i){
+      var t=document.querySelector('[data-lint-target="'+i+'"]'); if(!t) return;
+      var r=t.getBoundingClientRect();
+      if(!r.width && !r.height) return;
+      var pad=f.pad===0?0:3;
+      var box=document.createElement('div');
+      box.className='lbox'; box.setAttribute('data-sev',f.severity);
+      box.style.left=(r.left-base.left-pad)+'px';
+      box.style.top=(r.top-base.top-pad)+'px';
+      box.style.width=(r.width+pad*2)+'px';
+      box.style.height=(r.height+pad*2)+'px';
+      var tab=document.createElement('span');
+      tab.className='ltab';
+      tab.textContent=f.label;
+      box.appendChild(tab);
+      layer.appendChild(box);
+    });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',draw);
+  else draw();
+  window.addEventListener('load',draw);
+  window.addEventListener('resize',draw);
+})();
+</script>
+"""
+
+
+ENTITY_ALT = {
+    "–": "(?:–|&ndash;)", "—": "(?:—|&mdash;)", "·": "(?:·|&middot;)",
+    "…": "(?:…|&hellip;)", "×": "(?:×|&times;)", "&": "(?:&|&amp;)",
+    "'": "(?:'|&rsquo;|&#39;)", '"': "(?:\"|&ldquo;|&rdquo;|&quot;)",
+    "→": "(?:→|&rarr;)", "≈": "(?:≈|&asymp;)", "−": "(?:−|&minus;)",
+}
+
+
+def _needle_re(needle):
+    """visible_text() decodes entities; the source still has them. Match either,
+    and let any run of whitespace stand in for a single space."""
+    out = []
+    for ch in needle:
+        if ch in ENTITY_ALT:
+            out.append(ENTITY_ALT[ch])
+        elif ch.isspace():
+            out.append(r"\s+")
+        else:
+            out.append(re.escape(ch))
+    return "".join(out)
+
+
+def _mark_text_nodes(fragment, needle, rule, sev, target, limit=1):
+    """Wrap `needle` where it appears as visible text, never inside a tag or a style."""
+    if not needle:
+        return fragment, 0
+    parts, done = re.split(r"(<[^>]+>)", fragment), 0
+    in_skip = False
+    for i, part in enumerate(parts):
+        if part.startswith("<"):
+            low = part.lower()
+            if low.startswith("<style") or low.startswith("<script") or low.startswith("<svg"):
+                in_skip = True
+            elif low.startswith("</style") or low.startswith("</script") or low.startswith("</svg"):
+                in_skip = False
+            continue
+        if in_skip or done >= limit:
+            continue
+        m = re.search(_needle_re(needle), part, flags=re.I)
+        if not m:
+            continue
+        parts[i] = (part[:m.start()]
+                    + '<mark class="lint-hit" data-sev="%s" title="%s" data-lint-target="%d">'
+                       % (sev, rule, target)
+                    + part[m.start():m.end()] + "</mark>" + part[m.end():])
+        done += 1
+    return "".join(parts), done
+
+
+# Human labels: the tab says what the tell IS, not which function caught it.
+TAB_LABEL = {
+    "dark-ground": "Dark ground", "not-just-but": "Not just X but Y",
+    "banned-word": "Marketing filler", "filler-phrase": "Says nothing",
+    "nested-cards": "Cards in cards", "off-brand-gradient": "Off-brand gradient",
+    "gradient-budget": "Two gradients", "ai-font": "Overused font",
+    "title-emphasis": "Two emphases", "red-rose-type": "Wordmark as type",
+    "dash-density": "Dash tic", "print-shadow": "Shadow in print",
+    "gradient-clipped-text": "Prints grey", "css-dot-grid": "CSS dot grid",
+    "accent-budget": "Accent overused", "deck-length": "Too long",
+    "rule-of-three": "Rule of three", "font-allowlist": "Off-set font",
+}
+
+
+def _tab(f):
+    """Tab text: the tell, plus a detail only when it adds something."""
+    base = TAB_LABEL.get(f["rule"], f["rule"])
+    d = (f.get("detail") or "").strip()
+    if not d or d.lower() in base.lower() or base.lower() in d.lower():
+        return base
+    return "%s · %s" % (base, d)
+
+
+def annotate(html, lint, findings):
+    """Write a copy of the page with a box and a tab drawn on each flagged element."""
+    by_unit = {}
+    for f in findings:
+        by_unit.setdefault(f["unit"], []).append(f)
+
+    out, idx, meta = html, 0, []
+    for label, frag in lint.units:
+        new = frag
+        for f in by_unit.get(label, []):
+            tagged = False
+            if f.get("match"):
+                new, n = _mark_text_nodes(new, f["match"], f["rule"], f["severity"], idx)
+                tagged = bool(n)
+            if not tagged and f.get("anchor") and f["anchor"] in new:
+                tag = f["anchor"]
+                new = new.replace(tag, tag[:-1] + ' data-lint-target="%d">' % idx, 1)
+                tagged = True
+            if not tagged:
+                continue        # stylesheet-level finding: bar only, nothing to box
+            meta.append({"rule": f["rule"], "severity": f["severity"],
+                         "label": _tab(f)})
+            idx += 1
+        if new != frag:
+            out = out.replace(frag, new, 1)
+
+    c = {s: sum(1 for f in findings if f["severity"] == s) for s in SEV_ORDER}
+    unboxed = len(findings) - len(meta)
+    bar = ('<div id="lint-bar">deck-lint<span class="e">%d error</span>'
+           '<b>%d warn</b><span>%d note</span>%s</div>'
+           % (c["error"], c["warn"], c["note"],
+              ("<span>%d not on the page</span>" % unboxed) if unboxed else ""))
+    data = "<script>window.__LINT__=%s;</script>" % json.dumps(meta, ensure_ascii=False)
+    head = re.search(r"</head\s*>", out, flags=re.I)
+    inject = ANNOTATE_CSS + data
+    out = (out[:head.start()] + inject + out[head.start():]) if head else inject + out
+    m = re.search(r"<body\b[^>]*>", out, flags=re.I)
+    if m:
+        out = out[:m.end()] + '<div id="lint-layer"></div>' + bar + out[m.end():]
+    return out + ANNOTATE_JS
+
+
 def main():
     ap = argparse.ArgumentParser(description="Deterministic AI-slop lint for HTML decks and docs.")
     ap.add_argument("file", nargs="+")
@@ -446,6 +650,8 @@ def main():
     ap.add_argument("--only", choices=["visual", "copy"], help="one rule family")
     ap.add_argument("--min", choices=["note", "warn", "error"], default="note",
                     help="minimum severity to report")
+    ap.add_argument("--annotate", metavar="OUT.html",
+                    help="write a copy of the page with the findings drawn on it")
     args = ap.parse_args()
 
     worst, payload = 0, []
@@ -464,6 +670,9 @@ def main():
         for f in found:
             worst = max(worst, 2 if f["severity"] == "error" else
                         1 if f["severity"] == "warn" else 0)
+        if args.annotate:
+            open(args.annotate, "w", encoding="utf-8").write(annotate(html, lint, found))
+            print("  annotated copy → %s" % args.annotate)
         if args.json:
             payload.append({"file": path, "units": len(lint.units),
                             "mode": "deck" if lint.is_deck else "doc", "findings": found})
