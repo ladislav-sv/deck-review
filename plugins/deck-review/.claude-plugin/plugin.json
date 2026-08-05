@@ -1,7 +1,7 @@
 {
   "name": "deck-review",
-  "version": "1.4.1",
-  "description": "Annotate a deck or document in the browser and send comments back to Claude, plus deterministic AI-slop linting.",
+  "version": "1.5.0",
+  "description": "Flag AI slop and annotate a deck or document in the browser, send comments back to Claude, plus deterministic house-rule linting.",
   "author": {
     "name": "Edmund"
   },
@@ -12,6 +12,9 @@
     "docs",
     "feedback",
     "lint",
-    "ai-slop"
+    "ai-slop",
+    "slop",
+    "impeccable",
+    "design"
   ]
 }

@@ -1,12 +1,21 @@
 ---
 name: deck-review
 user-invocable: true
-description: Open an HTML deck or document on localhost with an annotation overlay so the user can pin, box and quote-select comments directly on it, then apply those comments to the source. Works on slide decks and on flowing documents (docs, one-pagers, proposals, guides). Use when the user wants to review, mark up, annotate, or give feedback on a deck, slide, doc or generated HTML page before it is printed to PDF - e.g. "let me annotate this", "open the deck so I can comment", "I want to mark up slide 4", "review round on the onboarding docs".
+description: Open an HTML deck or document on localhost with AI-slop flagging and an annotation overlay, so the user sees what is wrong and can pin, box and quote-select comments directly on it, then apply those comments to the source. Works on slide decks and on flowing documents (docs, one-pagers, proposals, guides). Use when the user wants to review, mark up, annotate, flag AI slop in, or give feedback on a deck, slide, doc or generated HTML page before it is printed to PDF - e.g. "let me annotate this", "open the deck so I can comment", "what looks AI-generated here", "I want to mark up slide 4", "review round on the onboarding docs".
 ---
 
 # Deck review
 
-Serves an HTML deck on `127.0.0.1` with an annotation overlay injected on the fly.
+Serves an HTML deck on `127.0.0.1` with two layers injected on the fly:
+
+1. **Flagging** — every AI-slop and design-quality problem outlined in place, from
+   Impeccable's detector (47 rules: eyebrow chips, side-tab borders, numbered
+   section labels, icon tile stacks, nested cards, dark glows, contrast, tiny text…).
+2. **Annotation** — the user pins, boxes and quote-selects their own comments.
+
+They compose: **alt-click any flagged element** to open a comment prefilled with the
+rule and its detail, so a machine finding becomes a human instruction in one click.
+
 **The file on disk is never modified**, so whatever gets printed to PDF stays clean.
 
 The user clicks, drags or selects text on the slides, writes comments, and hits
@@ -33,7 +42,31 @@ python3 "$SRV" <deck.html>
 ```
 
 Options: `--port 7654` (auto-increments if taken) · `--timeout 3600` ·
-`--out path.json` · `--no-open`.
+`--out path.json` · `--no-open` · `--no-flag` · `--ignore <rule,rule>`.
+
+## Flagging
+
+On by default. The startup banner says `flags on (impeccable)` when it is live.
+
+- Colour is Impeccable's own category: **orange = slop**, **blue = quality**,
+  **grey = advisory**. Hovering an outline shows the rule id and detail.
+- The bar bottom-left lists rules by count. Click one to isolate it — everything
+  else dims and the first hit scrolls into view. Click again to clear. `◎` hides
+  the outlines entirely.
+- Rules with a `·` after the name are page-level: counted, but there is no single
+  element to outline or comment on.
+- **`--ignore` when a rule fights the house style.** Edmund decks trip
+  `ai-color-palette` on the brand purple every time; `--ignore ai-color-palette`
+  is the right answer there, not arguing with the finding.
+- If a rule looks wrong, check it against `deck-lint` before reporting it — the two
+  disagree on purpose, `deck-lint` encodes the Edmund house rules and this encodes
+  general design quality.
+
+Pages saved with SingleFile inline their photos as data: URIs inside
+`background-image`, and the detector's regexes crawl over a 300KB base64 string.
+Any background over 64KB is blanked for the duration of the scan and restored
+after; the bar says how many were skipped. They are photographs, so no gradient or
+palette rule lost anything.
 
 **Do not pass `--no-open` by default.** The server opens the user's own browser,
 which is the point: they annotate there while you wait. Pass it only when you are
