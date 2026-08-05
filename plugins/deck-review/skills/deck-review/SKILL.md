@@ -33,7 +33,12 @@ python3 "$SRV" <deck.html>
 ```
 
 Options: `--port 7654` (auto-increments if taken) · `--timeout 3600` ·
-`--no-open` (skip auto-opening the browser) · `--out path.json`.
+`--out path.json` · `--no-open`.
+
+**Do not pass `--no-open` by default.** The server opens the user's own browser,
+which is the point: they annotate there while you wait. Pass it only when you are
+going to drive an embedded browser pane yourself for verification, and say so — a
+user who was told "it is live" and got no window will assume it is broken.
 
 Then tell the user the URL in one line and stop. Do not narrate, do not poll, do not
 start other work that assumes the review is done. When the task completes you are
