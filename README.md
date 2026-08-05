@@ -13,7 +13,7 @@ No screenshots pasted into chat. No "on slide 7, the third bullet, second senten
 ## Install
 
 ```
-/plugin marketplace add OWNER/deck-review
+/plugin marketplace add ladislav-sv/deck-review
 /plugin install deck-review@edmund
 ```
 
