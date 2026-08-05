@@ -25,8 +25,17 @@ BRAND = {
     "purple": "#7145fc", "pink": "#f8adf0", "ink": "#1a1f2e", "ink2": "#3d4557",
     "ink3": "#666e82", "paper": "#fbfaf8", "leak": "#d0562b", "navy": "#252e3d",
 }
-ALLOWED_FONTS = {
-    "space grotesk", "dm sans", "jetbrains mono", "red rose",
+# The house faces. These are never a finding, whatever any external list says.
+#
+# Note for anyone tempted to sync impeccable's OVERUSED_FONTS wholesale: it lists
+# Space Grotesk among the "Vercel / GitHub default wave". That is a fair call for a
+# generic web app and the wrong call here — Space Grotesk is Edmund's display face,
+# paired with DM Sans and a dot grid that nothing else on the internet has. An
+# overused font used deliberately as a brand is a brand, not a tell. HOUSE_FONTS is
+# checked first and short-circuits, so adding a face to AI_FONTS can never override it.
+HOUSE_FONTS = {"space grotesk", "dm sans", "jetbrains mono", "red rose"}
+
+ALLOWED_FONTS = HOUSE_FONTS | {
     "system-ui", "sans-serif", "serif", "monospace", "ui-monospace",
     "-apple-system", "blinkmacsystemfont", "segoe ui", "georgia", "inherit",
 }
@@ -341,6 +350,8 @@ class Lint:
                 if not f or f.startswith("var(") or f in seen:
                     continue
                 seen.add(f)
+                if f in HOUSE_FONTS:
+                    continue          # house face: never a finding
                 if f in AI_FONTS:
                     self.add("ai-font", "warn", "stylesheet",
                              "'%s' is one of the default typefaces every AI-generated page "
