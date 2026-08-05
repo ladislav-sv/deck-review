@@ -605,6 +605,9 @@ TAB_LABEL = {
 
 def _tab(f):
     """Tab text: the tell, plus a detail only when it adds something."""
+    # title-emphasis fires on both too many and none; one label cannot serve both.
+    if f["rule"] == "title-emphasis":
+        return "No purple phrase" if (f.get("detail") == "none") else "Two emphases"
     base = TAB_LABEL.get(f["rule"], f["rule"])
     d = (f.get("detail") or "").strip()
     if not d or d.lower() in base.lower() or base.lower() in d.lower():
