@@ -8,6 +8,13 @@ Claude wakes up with your comments and edits the source.
 
 No screenshots pasted into chat. No "on slide 7, the third bullet, second sentence".
 
+Two skills, one install:
+
+| | |
+|---|---|
+| **deck-review** | the browser annotation round trip |
+| **deck-lint** | deterministic AI-slop detection — no LLM, no network |
+
 ---
 
 ## Install
@@ -79,6 +86,43 @@ Claude builds  →  you annotate  →  server exits 0  →  Claude wakes, applie
 
 ---
 
+## deck-lint
+
+```bash
+python3 deck_lint.py deck.html
+```
+
+Or just ask: *"lint the deck"*, *"does this read like AI slop?"*
+
+Every rule points at something in the file or does not fire at all. Rules that need
+judgement are deliberately absent — a linter that cries wolf gets ignored.
+
+**Visual** — dark grounds (navy is ink, never a ground), more than one gradient per
+slide, gradients using none of the brand colours, cards genuinely nested inside cards,
+Inter/Poppins/Montserrat and the rest of the AI default typefaces, `background-clip:text`
+that Chrome prints as a grey box, `box-shadow` outside `@media screen` that Apple
+Preview turns boxy, a dot grid written as a CSS background that export tools drop.
+
+**Copy** — `not just X but Y`, marketing filler (`seamless`, `unlock`, `leverage`,
+`empower`, `delve`, `synergy`…), phrases that carry no fact, em and en dashes used as
+punctuation.
+
+Findings are reported per slide, numbered to match the printed page. Exit codes:
+`0` clean, `1` warnings, `2` errors — so it drops into a pre-commit hook or CI.
+
+A guide that teaches "never write X" has to be able to print X, so counter-examples
+can be excluded:
+
+```html
+<td data-lint="ignore">Unlock seamless operational excellence</td>
+<!-- lint-ignore -->  … bad examples …  <!-- /lint-ignore -->
+```
+
+[`test/slop-fixture.html`](test/slop-fixture.html) is a deliberately awful page that
+should trip 13 rules. If it stops doing that, something regressed.
+
+---
+
 ## Decks and documents
 
 The overlay picks its mode from the page.
@@ -126,7 +170,11 @@ plugins/deck-review/
   skills/deck-review/
     SKILL.md                         when Claude reaches for it, how to apply comments
     scripts/review_server.py         the server and the injected overlay
+  skills/deck-lint/
+    SKILL.md                         when to lint, how to report findings
+    scripts/deck_lint.py             the rules
 INSTALL.html                         illustrated guide
+test/slop-fixture.html               a bad page that must keep failing
 ```
 
 The skill never hardcodes its own path, so it works from whichever folder it lands

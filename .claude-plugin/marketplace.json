@@ -2,18 +2,34 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "edmund",
   "description": "Edmund's in-house Claude Code plugins",
-  "owner": { "name": "Edmund" },
+  "owner": {
+    "name": "Edmund"
+  },
   "plugins": [
     {
       "name": "deck-review",
       "displayName": "Deck review",
-      "description": "Annotate an HTML deck or document in the browser and send the comments back to Claude Code. Pin, box a region, or quote-select text; hitting Send writes a JSON file and wakes Claude up to apply it.",
-      "author": { "name": "Edmund" },
+      "description": "Annotate an HTML deck or document in the browser and send the comments back to Claude Code, plus deterministic AI-slop linting. Pin, box a region, or quote-select text; hitting Send writes a JSON file and wakes Claude up to apply it. deck-lint checks for off-brand gradients, dark grounds, AI default fonts and marketing filler without an LLM.",
+      "author": {
+        "name": "Edmund"
+      },
       "category": "productivity",
-      "keywords": ["review", "annotation", "deck", "docs", "feedback", "pdf"],
-      "version": "1.1.0",
+      "keywords": [
+        "review",
+        "annotation",
+        "deck",
+        "docs",
+        "feedback",
+        "lint",
+        "ai-slop",
+        "design"
+      ],
+      "version": "1.2.0",
       "source": "./plugins/deck-review",
-      "skills": ["./skills/deck-review"]
+      "skills": [
+        "./skills/deck-review",
+        "./skills/deck-lint"
+      ]
     }
   ]
 }
